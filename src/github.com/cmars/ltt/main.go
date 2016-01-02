@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"log"
 	"net/url"
-	"strings"
-	"unicode"
+	"os"
+	"os/exec"
+	"path/filepath"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/SlyMarbo/rss"
+	"github.com/boltdb/bolt"
 )
 
 type Download struct {
@@ -24,8 +26,20 @@ type Library struct {
 	Path string
 }
 
+func defaultPath() string {
+	home := os.Getenv("HOME")
+	if home == "" {
+		panic("HOME environment variable not set")
+	}
+	return filepath.Join(home, "Music", "listentothis")
+}
+
 func main() {
-	feed, err := rss.Fetch("https://www.reddit.com/r/listentothis/.rss")
+	var query string
+	if len(os.Args) > 1 {
+		query = os.Args[1]
+	}
+	feed, err := rss.Fetch("https://www.reddit.com/r/listentothis/.rss" + query)
 	if err != nil {
 		panic(err)
 	}
@@ -47,16 +61,21 @@ func main() {
 	defer lib.Close()
 
 	for _, dl := range available {
-		if !lib.Contains(dl) {
-			err := lib.Archive(dl)
-			if err != nil {
-				log.Println("failed to archive %q: %v", dl.ID, err)
-			}
+		err := lib.Archive(dl)
+		if err != nil {
+			log.Printf("failed to archive %q: %v", dl.ID, err)
+		} else {
+			log.Printf("downloaded %q", dl.ID)
 		}
 	}
 }
 
 func NewLibrary(path string) (*Library, error) {
+	err := os.MkdirAll(path, 0755)
+	if err != nil {
+		return nil, err
+	}
+
 	dbpath := filepath.Join(path, ".history")
 	db, err := bolt.Open(dbpath, 0600, nil)
 	if err != nil {
@@ -70,7 +89,7 @@ func NewLibrary(path string) (*Library, error) {
 
 func (l *Library) Archive(dl *Download) error {
 	return l.Update(func(tx *bolt.Tx) error {
-		cmd := exec.Command("youtube-dl", "-x", "--audio-format", "mp3", dl.URL.String())
+		cmd := exec.Command("youtube-dl", "-x", dl.URL.String())
 		cmd.Dir = l.Path
 		err := cmd.Run()
 		if err != nil {
@@ -85,7 +104,7 @@ func (l *Library) Archive(dl *Download) error {
 			return fmt.Errorf("already downloaded %q", dl.ID)
 		}
 
-		err = b.Put([]byte(dl.ID, []byte(dl.URL.String())))
+		err = b.Put([]byte(dl.ID), []byte(dl.URL.String()))
 		if err != nil {
 			return err
 		}
@@ -117,20 +136,10 @@ func ParseDownload(item *rss.Item) (*Download, error) {
 
 	return &Download{
 		Item: *item,
-		Info: songInfo,
 		URL:  *u,
 	}, nil
 }
 
 func isSupportedURL(u *url.URL) bool {
-	s := strings.Map(func(r rune) rune {
-		if unicode.IsLetter(r) {
-			return r
-		}
-		return rune(-1)
-	}, u.Host)
-	if strings.Contains(s, "youtube") {
-		return true
-	}
-	return false
+	return true
 }

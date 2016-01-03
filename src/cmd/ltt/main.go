@@ -35,11 +35,15 @@ func defaultPath() string {
 }
 
 func main() {
-	var query string
+	path := "r/listentothis"
 	if len(os.Args) > 1 {
-		query = os.Args[1]
+		path = os.Args[1]
 	}
-	feed, err := rss.Fetch("https://www.reddit.com/r/listentothis/.rss" + query)
+	query := ""
+	if len(os.Args) > 2 {
+		query = os.Args[2]
+	}
+	feed, err := rss.Fetch("https://www.reddit.com/" + path + "/.rss" + query)
 	if err != nil {
 		panic(err)
 	}
@@ -89,7 +93,7 @@ func NewLibrary(path string) (*Library, error) {
 
 func (l *Library) Archive(dl *Download) error {
 	return l.Update(func(tx *bolt.Tx) error {
-		cmd := exec.Command("youtube-dl", "-x", dl.URL.String())
+		cmd := exec.Command("youtube-dl", "-x", "--audio-format", "m4a", dl.URL.String())
 		cmd.Dir = l.Path
 		err := cmd.Run()
 		if err != nil {

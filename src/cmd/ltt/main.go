@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/url"
@@ -93,7 +94,7 @@ func NewLibrary(path string) (*Library, error) {
 
 func (l *Library) Archive(dl *Download) error {
 	return l.Update(func(tx *bolt.Tx) error {
-		cmd := exec.Command("youtube-dl", "-x", "--audio-format", "m4a", dl.URL.String())
+		cmd := exec.Command("youtube-dl", "-x", "--audio-format", "vorbis", dl.URL.String())
 		cmd.Dir = l.Path
 		err := cmd.Run()
 		if err != nil {
@@ -108,7 +109,12 @@ func (l *Library) Archive(dl *Download) error {
 			return fmt.Errorf("already downloaded %q", dl.ID)
 		}
 
-		err = b.Put([]byte(dl.ID), []byte(dl.URL.String()))
+		data, err := json.Marshal(dl)
+		if err != nil {
+			return err
+		}
+
+		err = b.Put([]byte(dl.ID), data)
 		if err != nil {
 			return err
 		}

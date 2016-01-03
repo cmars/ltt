@@ -29,7 +29,7 @@ type Library struct {
 func defaultPath() string {
 	home := os.Getenv("HOME")
 	if home == "" {
-		panic("HOME environment variable not set")
+		log.Fatal("HOME environment variable not set")
 	}
 	return filepath.Join(home, "Music", "listentothis")
 }
@@ -45,7 +45,7 @@ func main() {
 	}
 	feed, err := rss.Fetch("https://www.reddit.com/" + path + "/.rss" + query)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
 	var available []*Download
@@ -60,7 +60,7 @@ func main() {
 
 	lib, err := NewLibrary(defaultPath())
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	defer lib.Close()
 

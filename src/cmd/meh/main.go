@@ -86,6 +86,7 @@ func PostProcess(w http.ResponseWriter, req *http.Request, p httprouter.Params) 
 	panic("TODO")
 }
 
+// TODO: make this all fancy and shit
 var playTemplate = template.Must(template.New("play").Parse(`<html>
 <head>
 
@@ -107,7 +108,10 @@ $(document).ready(function(){
 			$(this).jPlayer("setMedia", {
 				title: "{{ .Filename }}",
 				oga: "/files/{{ .Filename }}"
-			});
+			}).jPlayer("play");
+		},
+		ended: function (event) {
+			window.location.href = "/";
 		},
 		supplied: "oga",
 		wmode: "window",
@@ -119,7 +123,6 @@ $(document).ready(function(){
 		toggleDuration: true
 	});
 
-	//$("#jplayer_inspector").jPlayerInspector({jPlayer:$("#jquery_jplayer_1")});
 });
 //]]>
 </script>

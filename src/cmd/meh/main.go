@@ -25,19 +25,48 @@ func init() {
 	rand.Seed(time.Now().Unix())
 }
 
+type service struct {
+	path string
+}
+
+func newService() (*service, error) {
+	s := &service{path: defaultPath()}
+	err := os.MkdirAll(s.keepDir(), 0755)
+	if err != nil {
+		return nil, err
+	}
+	err = os.MkdirAll(s.trashDir(), 0755)
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+func (s *service) keepDir() string {
+	return filepath.Join(s.path, "Keep")
+}
+
+func (s *service) trashDir() string {
+	return filepath.Join(s.path, "Trash")
+}
+
 func main() {
-	path := defaultPath()
+	s, err := newService()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	r := httprouter.New()
-	r.GET("/", Index)
-	r.GET("/song/:filename", Index)
-	r.POST("/song/:filename", PostProcess)
-	r.ServeFiles("/files/*filepath", http.Dir(path))
+	r.GET("/", s.index)
+	r.GET("/song/:filename", s.index)
+	r.POST("/song/:filename", s.keep)
+	r.DELETE("/song/:filename", s.trash)
+	r.ServeFiles("/files/*filepath", http.Dir(s.path))
 
 	log.Fatal(http.ListenAndServe("127.0.0.1:8080", r))
 }
 
-func Index(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
+func (*service) index(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
 	var err error
 	filename := p.ByName("filename")
 	if filename == "" {
@@ -76,14 +105,40 @@ func randomFilename() (string, error) {
 	return filepath.Base(matches[n]), nil
 }
 
-func PostProcess(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
+func (s *service) keep(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
 	filename := p.ByName("filename")
 	if filename == "" {
 		http.Error(w, "missing required filename parameter", http.StatusBadRequest)
 		return
 	}
 
-	panic("TODO")
+	err := s.moveFile(filename, s.keepDir())
+	if err != nil {
+		log.Println(err)
+		http.Error(w, fmt.Sprintf("failed to rename song file: %v", err), http.StatusInternalServerError)
+		return
+	}
+}
+
+func (s *service) trash(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
+	filename := p.ByName("filename")
+	if filename == "" {
+		http.Error(w, "missing required filename parameter", http.StatusBadRequest)
+		return
+	}
+
+	err := s.moveFile(filename, s.trashDir())
+	if err != nil {
+		log.Println(err)
+		http.Error(w, fmt.Sprintf("failed to rename song file: %v", err), http.StatusInternalServerError)
+		return
+	}
+}
+
+func (s *service) moveFile(filename, newPath string) error {
+	oldpath := filepath.Join(s.path, filename)
+	newpath := filepath.Join(newPath, filename)
+	return os.Rename(oldpath, newpath)
 }
 
 // TODO: make this all fancy and shit
@@ -101,6 +156,29 @@ var playTemplate = template.Must(template.New("play").Parse(`<html>
 
 <script type="text/javascript">
 //<![CDATA[
+
+next = function(){
+	window.location.href = "/";
+};
+
+keep = function(){
+	$.ajax({
+		type: "POST",
+		url: "/song/{{ .Filename }}",
+	}).done(function(){
+		next();
+	})
+};
+
+trash = function(){
+	$.ajax({
+		type: "DELETE",
+		url: "/song/{{ .Filename }}",
+	}).done(function(){
+		next();
+	})
+};
+
 $(document).ready(function(){
 
 	$("#jquery_jplayer_1").jPlayer({
@@ -124,13 +202,11 @@ $(document).ready(function(){
 	});
 
 });
+
 //]]>
 </script>
 
-<form action="/song/{{ .Filename }}" method="post">
-	<input type="hidden" name="action" value="keep" />
-	<input type="submit" value="Keep" />
-</form>
+<a href="javascript:keep();">Keep</a>
 
 <div id="jquery_jplayer_1" class="jp-jplayer"></div>
 <div id="jp_container_1" class="jp-audio" role="application" aria-label="media player">
@@ -170,14 +246,9 @@ $(document).ready(function(){
 	</div>
 </div>
 
-<form action="/" method="get" />
-	<input type="submit" value="Next" />
-</form>
+<a href="javascript:next();">Next</a>
 
-<form action="/song/{{ .Filename }}" method="post">
-	<input type="hidden" name="action" value="delete" />
-	<input type="submit" value="Trash" />
-</form>
+<a href="javascript:trash();">Trash</a>
 
 <!-- <div id="jplayer_inspector"></div> -->
 

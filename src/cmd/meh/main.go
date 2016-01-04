@@ -2,10 +2,13 @@ package main
 
 import (
 	"fmt"
+	"html/template"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/julienschmidt/httprouter"
 )
@@ -18,18 +21,72 @@ func defaultPath() string {
 	return filepath.Join(home, "Music", "listentothis")
 }
 
+func init() {
+	rand.Seed(time.Now().Unix())
+}
+
 func main() {
 	path := defaultPath()
 
 	r := httprouter.New()
 	r.GET("/", Index)
+	r.GET("/song/:filename", Index)
+	r.POST("/song/:filename", PostProcess)
 	r.ServeFiles("/files/*filepath", http.Dir(path))
 
-	log.Fatal(http.ListenAndServe(":8080", r))
+	log.Fatal(http.ListenAndServe("127.0.0.1:8080", r))
 }
 
 func Index(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
-	fmt.Fprintf(w, `<html>
+	var err error
+	filename := p.ByName("filename")
+	if filename == "" {
+		filename, err = randomFilename()
+		if err == ErrNotFound {
+			// TODO: react gracefully here
+			http.Error(w, "no files found", http.StatusNotFound)
+			return
+		} else if err != nil {
+			http.Error(w, fmt.Sprintf("failed to select random filename: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	err = playTemplate.Execute(w, struct {
+		Filename string
+	}{
+		Filename: filename,
+	})
+	if err != nil {
+		http.Error(w, "failed to execute template", http.StatusInternalServerError)
+	}
+}
+
+var ErrNotFound = fmt.Errorf("not found")
+
+func randomFilename() (string, error) {
+	matches, err := filepath.Glob(filepath.Join(defaultPath(), "*.ogg"))
+	if err != nil {
+		return "", err
+	}
+	if len(matches) == 0 {
+		return "", ErrNotFound
+	}
+	n := rand.Intn(len(matches))
+	return filepath.Base(matches[n]), nil
+}
+
+func PostProcess(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
+	filename := p.ByName("filename")
+	if filename == "" {
+		http.Error(w, "missing required filename parameter", http.StatusBadRequest)
+		return
+	}
+
+	panic("TODO")
+}
+
+var playTemplate = template.Must(template.New("play").Parse(`<html>
 <head>
 
 <link href="https://cdnjs.cloudflare.com/ajax/libs/jplayer/2.9.2/skin/blue.monday/css/jplayer.blue.monday.min.css" rel="stylesheet" type="text/css" />
@@ -39,7 +96,7 @@ func Index(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
 
 </head>
 <body>
-<h1>meh</h1>
+<h1>{{ .Filename }}</h1>
 
 <script type="text/javascript">
 //<![CDATA[
@@ -48,8 +105,8 @@ $(document).ready(function(){
 	$("#jquery_jplayer_1").jPlayer({
 		ready: function (event) {
 			$(this).jPlayer("setMedia", {
-				title: "Lowtide",
-				oga: "/files/LOWTIDE - JULIA_SPRING-tpfk2JU1_LQ.ogg"
+				title: "{{ .Filename }}",
+				oga: "/files/{{ .Filename }}"
 			});
 		},
 		supplied: "oga",
@@ -62,10 +119,15 @@ $(document).ready(function(){
 		toggleDuration: true
 	});
 
-	$("#jplayer_inspector").jPlayerInspector({jPlayer:$("#jquery_jplayer_1")});
+	//$("#jplayer_inspector").jPlayerInspector({jPlayer:$("#jquery_jplayer_1")});
 });
 //]]>
 </script>
+
+<form action="/song/{{ .Filename }}" method="post">
+	<input type="hidden" name="action" value="keep" />
+	<input type="submit" value="Keep" />
+</form>
 
 <div id="jquery_jplayer_1" class="jp-jplayer"></div>
 <div id="jp_container_1" class="jp-audio" role="application" aria-label="media player">
@@ -104,9 +166,18 @@ $(document).ready(function(){
 		</div>
 	</div>
 </div>
-<div id="jplayer_inspector"></div>
+
+<form action="/" method="get" />
+	<input type="submit" value="Next" />
+</form>
+
+<form action="/song/{{ .Filename }}" method="post">
+	<input type="hidden" name="action" value="delete" />
+	<input type="submit" value="Trash" />
+</form>
+
+<!-- <div id="jplayer_inspector"></div> -->
 
 </body>
 </html>
-`)
-}
+`))
